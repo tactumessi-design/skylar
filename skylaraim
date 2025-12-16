@@ -1,0 +1,1960 @@
+-- Skylar Aimbot - 1.0
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local CoreGui = game:GetService("CoreGui")
+local Stats = game:GetService("Stats")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+
+local player = Players.LocalPlayer
+local camera = Workspace.CurrentCamera
+
+-- Settings - ENHANCED
+local Settings = {
+    Enabled = true,
+    Smoothness = 0.5,
+    FOV = 80,
+    ShowFOV = true,
+    TeamCheck = false,
+    WallCheck = false,
+    ActivationDistance = 500,
+    MissChance = 0,
+    TrackPart = "Head",
+    Spinbot = false,
+    SpinbotSpeed = 30,
+    BehindWarning = true,
+    AimbotHotkey = Enum.KeyCode.E,
+    HotkeyMode = "Toggle",
+    MenuOpen = true,
+    
+    -- NEW FEATURES
+    AutoShoot = false,
+    AutoShootDelay = 0.1,
+    AutoShootKey = Enum.KeyCode.T,
+    PanicKey = Enum.KeyCode.P,
+    Radar = false,
+    RadarSize = 120,
+    RadarRange = 500,
+    Tracers = false,
+    TracerColor = Color3.fromRGB(255, 0, 0),
+    HitSound = true,
+    HitSoundId = "rbxassetid://6647877129",
+    HitSoundVolume = 0.5,
+    DisableTeamESP = false,
+    CustomESPColor = false,
+    ESPColor = Color3.fromRGB(255, 50, 50),
+    ESPColorTeam = Color3.fromRGB(0, 200, 0),
+    ESPColorEnemy = Color3.fromRGB(255, 50, 50),
+    BoxOutline = true,
+    HealthBar = true,
+    ChangeSky = false,
+    SkyColor = Color3.fromRGB(0, 0, 50),
+    
+    ESP = {
+        Enabled = true,
+        Box = true,
+        ShowHealth = true,
+        ShowDistance = true,
+        ShowName = true,
+        HealthBar = true,
+        TeamESP = true
+    },
+    
+    Misc = {
+        MoveSpeed = 16,
+        JumpPower = 50,
+        Watermark = true
+    }
+}
+
+-- Drawing objects
+local FOVCircle
+local ESPBoxes = {}
+local ESPTexts = {}
+local ESPHealthBars = {}
+local ScreenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+
+-- NEW: Cool Watermark objects
+local WatermarkText
+local WatermarkBackground
+local WatermarkGlow
+local WatermarkIcon
+
+local BehindWarningFrame
+local behindWarningText
+
+-- NEW: Radar drawing
+local RadarBox
+local RadarBackground
+local RadarBlips = {}
+local RadarGrid = {}
+
+-- NEW: Tracers drawing - Fixed to remove when player leaves
+local TracerLines = {}
+local ActiveTracers = {}
+
+-- NEW: Auto shoot variables
+local lastShotTime = 0
+
+-- NEW: Panic mode
+local panicMode = false
+local panicBackup = {}
+
+-- NEW: Hit sound
+local hitSound = Instance.new("Sound")
+
+-- NEW: Spinbot
+local spinbotAngle = 0
+
+-- NEW: Original sky
+local originalSky = nil
+local skyboxParts = {"SkyboxBk", "SkyboxDn", "SkyboxFt", "SkyboxLf", "SkyboxRt", "SkyboxUp"}
+
+-- State variables
+local aimbotActive = Settings.Enabled
+local isMenuOpen = true
+local skyChanged = false
+
+-- Keycode names for display
+local keycodeNames = {
+    [Enum.KeyCode.E] = "E",
+    [Enum.KeyCode.Q] = "Q",
+    [Enum.KeyCode.T] = "T",
+    [Enum.KeyCode.Y] = "Y",
+    [Enum.KeyCode.U] = "U",
+    [Enum.KeyCode.R] = "R",
+    [Enum.KeyCode.P] = "P",
+    [Enum.KeyCode.F] = "F",
+    [Enum.KeyCode.G] = "G",
+    [Enum.KeyCode.H] = "H",
+    [Enum.KeyCode.J] = "J",
+    [Enum.KeyCode.K] = "K",
+    [Enum.KeyCode.L] = "L",
+    [Enum.KeyCode.Z] = "Z",
+    [Enum.KeyCode.X] = "X",
+    [Enum.KeyCode.C] = "C",
+    [Enum.KeyCode.V] = "V",
+    [Enum.KeyCode.B] = "B",
+    [Enum.KeyCode.N] = "N",
+    [Enum.KeyCode.M] = "M",
+    [Enum.KeyCode.LeftShift] = "SHIFT",
+    [Enum.KeyCode.LeftControl] = "CTRL",
+    [Enum.KeyCode.LeftAlt] = "ALT",
+    [Enum.KeyCode.RightShift] = "R_SHIFT",
+    [Enum.KeyCode.RightControl] = "R_CTRL",
+    [Enum.KeyCode.RightAlt] = "R_ALT",
+    [Enum.KeyCode.Space] = "SPACE",
+    [Enum.KeyCode.Return] = "ENTER",
+    [Enum.KeyCode.Backspace] = "BACKSPACE",
+    [Enum.KeyCode.Tab] = "TAB",
+    [Enum.KeyCode.Escape] = "ESC",
+    [Enum.KeyCode.F1] = "F1",
+    [Enum.KeyCode.F2] = "F2",
+    [Enum.KeyCode.F3] = "F3",
+    [Enum.KeyCode.F4] = "F4",
+    [Enum.KeyCode.F5] = "F5",
+    [Enum.KeyCode.F6] = "F6",
+    [Enum.KeyCode.F7] = "F7",
+    [Enum.KeyCode.F8] = "F8",
+    [Enum.KeyCode.F9] = "F9",
+    [Enum.KeyCode.F10] = "F10",
+    [Enum.KeyCode.F11] = "F11",
+    [Enum.KeyCode.F12] = "F12"
+}
+
+-- Initialize hit sound
+hitSound.SoundId = Settings.HitSoundId
+hitSound.Volume = Settings.HitSoundVolume
+hitSound.Parent = Workspace
+
+-- Save original sky
+task.spawn(function()
+    wait(1)
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if sky then
+        originalSky = {}
+        for _, part in pairs(skyboxParts) do
+            originalSky[part] = sky[part]
+        end
+    end
+end)
+
+-- Create Cool Watermark with glow effect
+local function CreateWatermark()
+    if WatermarkText then WatermarkText:Remove() end
+    if WatermarkBackground then WatermarkBackground:Remove() end
+    if WatermarkGlow then WatermarkGlow:Remove() end
+    if WatermarkIcon then WatermarkIcon:Remove() end
+    
+    -- Glow effect
+    WatermarkGlow = Drawing.new("Square")
+    WatermarkGlow.Visible = Settings.Misc.Watermark
+    WatermarkGlow.Color = Color3.fromRGB(255, 200, 0)
+    WatermarkGlow.Filled = true
+    WatermarkGlow.Thickness = 0
+    WatermarkGlow.Size = Vector2.new(140, 32)
+    WatermarkGlow.Position = Vector2.new(3, 3)
+    WatermarkGlow.Transparency = 0.2
+    
+    -- Background with gradient effect
+    WatermarkBackground = Drawing.new("Square")
+    WatermarkBackground.Visible = Settings.Misc.Watermark
+    WatermarkBackground.Color = Color3.fromRGB(15, 15, 20)
+    WatermarkBackground.Filled = true
+    WatermarkBackground.Thickness = 0
+    WatermarkBackground.Size = Vector2.new(135, 27)
+    WatermarkBackground.Position = Vector2.new(5, 5)
+    WatermarkBackground.Transparency = 0.7
+    
+    -- Cool icon/symbol
+    WatermarkIcon = Drawing.new("Text")
+    WatermarkIcon.Visible = Settings.Misc.Watermark
+    WatermarkIcon.Text = "⚡"
+    WatermarkIcon.Color = Color3.fromRGB(255, 200, 0)
+    WatermarkIcon.Size = 18
+    WatermarkIcon.Outline = false
+    WatermarkIcon.Center = false
+    WatermarkIcon.Position = Vector2.new(10, 8)
+    
+    -- Main text
+    WatermarkText = Drawing.new("Text")
+    WatermarkText.Visible = Settings.Misc.Watermark
+    WatermarkText.Text = "Skylar | FPS: 60"
+    WatermarkText.Color = Color3.fromRGB(255, 220, 100)
+    WatermarkText.Size = 14
+    WatermarkText.Outline = false
+    WatermarkText.Center = false
+    WatermarkText.Position = Vector2.new(32, 8)
+    
+    -- Border
+    local watermarkBorder = Drawing.new("Square")
+    watermarkBorder.Visible = Settings.Misc.Watermark
+    watermarkBorder.Color = Color3.fromRGB(255, 200, 0)
+    watermarkBorder.Filled = false
+    watermarkBorder.Thickness = 1
+    watermarkBorder.Size = Vector2.new(135, 27)
+    watermarkBorder.Position = Vector2.new(5, 5)
+    watermarkBorder.Transparency = 0.5
+end
+
+-- Update watermark FPS with cool animation
+local function UpdateWatermarkFPS(fps)
+    if WatermarkText then
+        WatermarkText.Text = string.format("Skylar | FPS: %d", fps)
+        if WatermarkBackground and WatermarkGlow then
+            local textWidth = #WatermarkText.Text * 7
+            local width = math.max(textWidth + 40, 135)
+            WatermarkBackground.Size = Vector2.new(width, 27)
+            WatermarkGlow.Size = Vector2.new(width + 5, 32)
+            
+            -- Pulse effect on low FPS
+            if fps < 30 then
+                WatermarkText.Color = Color3.fromRGB(255, 50, 50)
+                WatermarkIcon.Color = Color3.fromRGB(255, 50, 50)
+                WatermarkGlow.Color = Color3.fromRGB(255, 50, 50)
+            elseif fps < 60 then
+                WatermarkText.Color = Color3.fromRGB(255, 150, 50)
+                WatermarkIcon.Color = Color3.fromRGB(255, 150, 50)
+                WatermarkGlow.Color = Color3.fromRGB(255, 150, 50)
+            else
+                WatermarkText.Color = Color3.fromRGB(255, 220, 100)
+                WatermarkIcon.Color = Color3.fromRGB(255, 200, 0)
+                WatermarkGlow.Color = Color3.fromRGB(255, 200, 0)
+            end
+        end
+    end
+end
+
+-- Create modern behind warning
+local function CreateBehindWarning()
+    if BehindWarningFrame then BehindWarningFrame:Remove() end
+    if behindWarningText then behindWarningText:Remove() end
+    
+    BehindWarningFrame = Drawing.new("Square")
+    BehindWarningFrame.Visible = false
+    BehindWarningFrame.Color = Color3.fromRGB(40, 40, 45)
+    BehindWarningFrame.Filled = true
+    BehindWarningFrame.Thickness = 2
+    BehindWarningFrame.Size = Vector2.new(250, 40)
+    BehindWarningFrame.Position = Vector2.new(ScreenCenter.X + 150, ScreenCenter.Y - 20)
+    BehindWarningFrame.Transparency = 0.8
+    
+    behindWarningText = Drawing.new("Text")
+    behindWarningText.Visible = false
+    behindWarningText.Text = ""
+    behindWarningText.Color = Color3.fromRGB(255, 50, 50)
+    behindWarningText.Size = 16
+    behindWarningText.Outline = true
+    behindWarningText.OutlineColor = Color3.fromRGB(0, 0, 0)
+    behindWarningText.Center = true
+    behindWarningText.Position = Vector2.new(ScreenCenter.X + 275, ScreenCenter.Y)
+    
+    return {Background = BehindWarningFrame, Text = behindWarningText}
+end
+
+-- Create FOV Circle
+local function CreateFOVCircle()
+    if FOVCircle then FOVCircle:Remove() end
+    
+    FOVCircle = Drawing.new("Circle")
+    FOVCircle.Visible = Settings.ShowFOV
+    FOVCircle.Thickness = 2
+    FOVCircle.Color = Color3.fromRGB(255, 200, 0)
+    FOVCircle.Transparency = 0.3
+    FOVCircle.Filled = false
+    FOVCircle.NumSides = 64
+    FOVCircle.Radius = Settings.FOV
+    FOVCircle.Position = ScreenCenter
+end
+
+-- Create Radar as square in top right corner with black background
+local function CreateRadar()
+    if RadarBox then RadarBox:Remove() end
+    if RadarBackground then RadarBackground:Remove() end
+    
+    -- Clear old blips and grid
+    for name, blipData in pairs(RadarBlips) do
+        if blipData.blip then blipData.blip:Remove() end
+        RadarBlips[name] = nil
+    end
+    
+    for _, line in pairs(RadarGrid) do
+        if line then line:Remove() end
+    end
+    RadarGrid = {}
+    
+    -- Calculate position for top right corner
+    local radarX = camera.ViewportSize.X - Settings.RadarSize - 10
+    local radarY = 10
+    
+    -- Create black background
+    RadarBackground = Drawing.new("Square")
+    RadarBackground.Visible = Settings.Radar
+    RadarBackground.Color = Color3.fromRGB(0, 0, 0)
+    RadarBackground.Filled = true
+    RadarBackground.Thickness = 0
+    RadarBackground.Size = Vector2.new(Settings.RadarSize + 4, Settings.RadarSize + 4)
+    RadarBackground.Position = Vector2.new(radarX - 2, radarY - 2)
+    RadarBackground.Transparency = 0.8
+    
+    -- Create radar box (square)
+    RadarBox = Drawing.new("Square")
+    RadarBox.Visible = Settings.Radar
+    RadarBox.Color = Color3.fromRGB(0, 255, 0)
+    RadarBox.Filled = false
+    RadarBox.Thickness = 2
+    RadarBox.Size = Vector2.new(Settings.RadarSize, Settings.RadarSize)
+    RadarBox.Position = Vector2.new(radarX, radarY)
+    
+    -- Create center dot
+    local centerX = radarX + Settings.RadarSize / 2
+    local centerY = radarY + Settings.RadarSize / 2
+    
+    RadarBlips["center"] = {
+        blip = Drawing.new("Circle"),
+        text = nil
+    }
+    RadarBlips["center"].blip.Visible = Settings.Radar
+    RadarBlips["center"].blip.Color = Color3.fromRGB(255, 200, 0)
+    RadarBlips["center"].blip.Radius = 3
+    RadarBlips["center"].blip.Filled = true
+    RadarBlips["center"].blip.Position = Vector2.new(centerX, centerY)
+    
+    -- Create grid lines
+    for i = 1, 3 do
+        RadarGrid[i] = Drawing.new("Line")
+        RadarGrid[i].Visible = Settings.Radar
+        RadarGrid[i].Color = Color3.fromRGB(50, 50, 50)
+        RadarGrid[i].Thickness = 1
+    end
+end
+
+-- Update Radar
+local function UpdateRadar()
+    if not Settings.Radar or panicMode then
+        if RadarBox then RadarBox.Visible = false end
+        if RadarBackground then RadarBackground.Visible = false end
+        if RadarBlips["center"] and RadarBlips["center"].blip then
+            RadarBlips["center"].blip.Visible = false
+        end
+        for _, line in pairs(RadarGrid) do
+            if line then line.Visible = false end
+        end
+        for name, blipData in pairs(RadarBlips) do
+            if name ~= "center" then
+                if blipData.blip then blipData.blip.Visible = false end
+            end
+        end
+        return
+    end
+    
+    if not RadarBox then
+        CreateRadar()
+    end
+    
+    -- Update position for top right corner
+    local radarX = camera.ViewportSize.X - Settings.RadarSize - 10
+    local radarY = 10
+    
+    RadarBackground.Visible = true
+    RadarBackground.Position = Vector2.new(radarX - 2, radarY - 2)
+    RadarBackground.Size = Vector2.new(Settings.RadarSize + 4, Settings.RadarSize + 4)
+    
+    RadarBox.Visible = true
+    RadarBox.Position = Vector2.new(radarX, radarY)
+    RadarBox.Size = Vector2.new(Settings.RadarSize, Settings.RadarSize)
+    
+    -- Update center
+    local centerX = radarX + Settings.RadarSize / 2
+    local centerY = radarY + Settings.RadarSize / 2
+    
+    if RadarBlips["center"] and RadarBlips["center"].blip then
+        RadarBlips["center"].blip.Visible = true
+        RadarBlips["center"].blip.Position = Vector2.new(centerX, centerY)
+    end
+    
+    -- Update grid
+    for _, line in pairs(RadarGrid) do
+        if line then line.Visible = true end
+    end
+    
+    if RadarGrid[1] then
+        RadarGrid[1].From = Vector2.new(centerX, radarY)
+        RadarGrid[1].To = Vector2.new(centerX, radarY + Settings.RadarSize)
+    end
+    if RadarGrid[2] then
+        RadarGrid[2].From = Vector2.new(radarX, centerY)
+        RadarGrid[2].To = Vector2.new(radarX + Settings.RadarSize, centerY)
+    end
+    if RadarGrid[3] then
+        RadarGrid[3].From = Vector2.new(radarX, radarY)
+        RadarGrid[3].To = Vector2.new(radarX + Settings.RadarSize, radarY + Settings.RadarSize)
+    end
+    
+    -- Clear old enemy blips
+    for name, blipData in pairs(RadarBlips) do
+        if name ~= "center" then
+            if blipData.blip then blipData.blip:Remove() end
+            RadarBlips[name] = nil
+        end
+    end
+    
+    if not player.Character then return end
+    local playerRoot = player.Character:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return end
+    
+    local playerPos = playerRoot.Position
+    local playerCF = playerRoot.CFrame
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == player then continue end
+        
+        -- Skip teammates if team ESP is disabled
+        if Settings.ESP.TeamESP == false and p.Team and player.Team and p.Team == player.Team then
+            continue
+        end
+        
+        local char = p.Character
+        if not char then continue end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        
+        local targetRoot = char:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then continue end
+        
+        local targetPos = targetRoot.Position
+        local distance = (playerPos - targetPos).Magnitude
+        
+        if distance > Settings.RadarRange then continue end
+        
+        -- Calculate relative position
+        local relativePos = playerCF:PointToObjectSpace(targetPos)
+        local radarXPos = (relativePos.X / Settings.RadarRange) * (Settings.RadarSize / 2)
+        local radarYPos = (relativePos.Z / Settings.RadarRange) * (Settings.RadarSize / 2)
+        
+        -- Keep within radar bounds
+        if math.abs(radarXPos) > Settings.RadarSize / 2 then
+            radarXPos = (radarXPos / math.abs(radarXPos)) * (Settings.RadarSize / 2)
+        end
+        if math.abs(radarYPos) > Settings.RadarSize / 2 then
+            radarYPos = (radarYPos / math.abs(radarYPos)) * (Settings.RadarSize / 2)
+        end
+        
+        -- Create blip
+        local blip = Drawing.new("Circle")
+        blip.Visible = true
+        
+        -- Set color based on team
+        if p.Team and player.Team and p.Team == player.Team then
+            blip.Color = Settings.ESPColorTeam
+        else
+            blip.Color = Settings.CustomESPColor and Settings.ESPColor or Settings.ESPColorEnemy
+        end
+        
+        blip.Radius = 3
+        blip.Filled = true
+        blip.Position = Vector2.new(centerX + radarXPos, centerY - radarYPos)
+        
+        RadarBlips[p.Name] = {blip = blip, text = nil}
+    end
+end
+
+-- Fixed Tracers (removes when player leaves)
+local function UpdateTracers()
+    if not Settings.Tracers or panicMode then
+        -- Clear all tracers
+        for playerObj, line in pairs(TracerLines) do
+            if line then 
+                line:Remove()
+                TracerLines[playerObj] = nil
+                ActiveTracers[playerObj] = nil
+            end
+        end
+        return
+    end
+    
+    if not player.Character then return end
+    
+    local origin = Vector2.new(ScreenCenter.X, camera.ViewportSize.Y)
+    
+    -- Track active players
+    local currentPlayers = {}
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == player then continue end
+        currentPlayers[p] = true
+        
+        -- Skip teammates for tracers (enemies only)
+        if p.Team and player.Team and p.Team == player.Team then
+            if TracerLines[p] then
+                TracerLines[p].Visible = false
+            end
+            continue
+        end
+        
+        local char = p.Character
+        if not char then
+            if TracerLines[p] then
+                TracerLines[p].Visible = false
+            end
+            ActiveTracers[p] = nil
+            continue
+        end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then
+            if TracerLines[p] then
+                TracerLines[p].Visible = false
+            end
+            ActiveTracers[p] = nil
+            continue
+        end
+        
+        local targetRoot = char:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then continue end
+        
+        local targetScreenPos, targetOnScreen = camera:WorldToViewportPoint(targetRoot.Position)
+        
+        if not TracerLines[p] then
+            TracerLines[p] = Drawing.new("Line")
+            TracerLines[p].Thickness = 1
+            TracerLines[p].Color = Settings.TracerColor
+        end
+        
+        TracerLines[p].Visible = targetOnScreen
+        TracerLines[p].From = origin
+        TracerLines[p].To = Vector2.new(targetScreenPos.X, targetScreenPos.Y)
+        TracerLines[p].Color = Settings.TracerColor
+        
+        ActiveTracers[p] = true
+    end
+    
+    -- Remove tracers for players who left
+    for playerObj, _ in pairs(TracerLines) do
+        if not currentPlayers[playerObj] then
+            if TracerLines[playerObj] then
+                TracerLines[playerObj]:Remove()
+                TracerLines[playerObj] = nil
+            end
+            ActiveTracers[playerObj] = nil
+        end
+    end
+end
+
+-- FIXED: Change Sky function (doesn't interfere with other features)
+local function UpdateSky()
+    if panicMode then return end
+    
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+    
+    if Settings.ChangeSky then
+        -- Convert color to skybox texture ID
+        local r = math.floor(Settings.SkyColor.R * 255)
+        local g = math.floor(Settings.SkyColor.G * 255)
+        local b = math.floor(Settings.SkyColor.B * 255)
+        local colorId = 1000000 + (r * 10000) + (g * 100) + b
+        
+        for _, part in pairs(skyboxParts) do
+            sky[part] = "rbxassetid://" .. tostring(colorId)
+        end
+        skyChanged = true
+    elseif skyChanged then
+        -- Restore original sky
+        if originalSky then
+            for _, part in pairs(skyboxParts) do
+                if originalSky[part] then
+                    sky[part] = originalSky[part]
+                end
+            end
+        end
+        skyChanged = false
+    end
+end
+
+-- Improved Spinbot
+local function ApplySpinbot()
+    if not Settings.Spinbot or not player.Character or panicMode then return end
+    
+    local root = player.Character:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    spinbotAngle = spinbotAngle + Settings.SpinbotSpeed * 0.2
+    if spinbotAngle > 360 then
+        spinbotAngle = 0
+    end
+    
+    local currentCF = root.CFrame
+    local rotation = CFrame.Angles(0, math.rad(spinbotAngle), 0)
+    local newCF = CFrame.new(currentCF.Position) * rotation
+    
+    root.CFrame = newCF
+end
+
+-- Fixed Auto Shoot
+local function AutoShoot()
+    if not Settings.AutoShoot or panicMode or tick() - lastShotTime < Settings.AutoShootDelay then
+        return
+    end
+    
+    local target = GetTargetInFOV()
+    if target and target.Character then
+        if Settings.HitSound then
+            hitSound:Play()
+        end
+        
+        lastShotTime = tick()
+    end
+end
+
+-- Panic function
+local function TogglePanic()
+    panicMode = not panicMode
+    
+    if panicMode then
+        panicBackup = {
+            Enabled = Settings.Enabled,
+            ESPEnabled = Settings.ESP.Enabled,
+            AutoShoot = Settings.AutoShoot,
+            Radar = Settings.Radar,
+            Tracers = Settings.Tracers,
+            ShowFOV = Settings.ShowFOV,
+            ChangeSky = Settings.ChangeSky
+        }
+        
+        Settings.Enabled = false
+        Settings.ESP.Enabled = false
+        Settings.AutoShoot = false
+        Settings.Radar = false
+        Settings.Tracers = false
+        Settings.ShowFOV = false
+        Settings.ChangeSky = false
+        
+        if FOVCircle then FOVCircle.Visible = false end
+        
+        task.delay(10, function()
+            panicMode = false
+            Settings.Enabled = panicBackup.Enabled
+            Settings.ESP.Enabled = panicBackup.ESPEnabled
+            Settings.AutoShoot = panicBackup.AutoShoot
+            Settings.Radar = panicBackup.Radar
+            Settings.Tracers = panicBackup.Tracers
+            Settings.ShowFOV = panicBackup.ShowFOV
+            Settings.ChangeSky = panicBackup.ChangeSky
+            
+            if FOVCircle then FOVCircle.Visible = Settings.ShowFOV end
+        end)
+    else
+        if panicBackup.Enabled ~= nil then
+            Settings.Enabled = panicBackup.Enabled
+            Settings.ESP.Enabled = panicBackup.ESPEnabled
+            Settings.AutoShoot = panicBackup.AutoShoot
+            Settings.Radar = panicBackup.Radar
+            Settings.Tracers = panicBackup.Tracers
+            Settings.ShowFOV = panicBackup.ShowFOV
+            Settings.ChangeSky = panicBackup.ChangeSky
+        end
+        
+        if FOVCircle then FOVCircle.Visible = Settings.ShowFOV end
+    end
+end
+
+-- Get ESP color
+local function GetESPColor(targetPlayer)
+    if Settings.CustomESPColor then
+        return Settings.ESPColor
+    end
+    
+    if targetPlayer.Team and player.Team and targetPlayer.Team == player.Team then
+        return Settings.ESPColorTeam
+    else
+        return Settings.ESPColorEnemy
+    end
+end
+
+-- Get target body part
+local function GetTargetPart(character)
+    if not character then return nil end
+    
+    local partName = Settings.TrackPart
+    local part = character:FindFirstChild(partName)
+    
+    if not part and partName ~= "Head" then
+        part = character:FindFirstChild("Head")
+    end
+    
+    if not part then
+        part = character:FindFirstChild("HumanoidRootPart")
+    end
+    
+    return part
+end
+
+-- Check if enemy is behind player
+local function CheckBehindEnemies()
+    if not Settings.BehindWarning or not player.Character then return nil end
+    
+    local playerRoot = player.Character:FindFirstChild("HumanoidRootPart")
+    if not playerRoot then return nil end
+    
+    local playerPos = playerRoot.Position
+    local playerLook = playerRoot.CFrame.LookVector
+    
+    local closestBehind = nil
+    local closestDistance = math.huge
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == player then continue end
+        
+        if Settings.TeamCheck and p.Team and player.Team and p.Team == player.Team then
+            continue
+        end
+        
+        local char = p.Character
+        if not char then continue end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        
+        local targetRoot = char:FindFirstChild("HumanoidRootPart")
+        if not targetRoot then continue end
+        
+        local targetPos = targetRoot.Position
+        local direction = (targetPos - playerPos).Unit
+        
+        local dot = playerLook:Dot(direction)
+        if dot < -0.5 then
+            local distance = (playerPos - targetPos).Magnitude
+            if distance < closestDistance then
+                closestDistance = distance
+                closestBehind = {
+                    Player = p,
+                    Distance = distance,
+                    Character = char
+                }
+            end
+        end
+    end
+    
+    return closestBehind
+end
+
+-- Enhanced GetTargetInFOV
+local function GetTargetInFOV()
+    if not player.Character then return nil end
+    
+    local closest = nil
+    local closestDist = Settings.FOV
+    local playerPos = player.Character.PrimaryPart and player.Character.PrimaryPart.Position
+    if not playerPos then return nil end
+    
+    for _, p in pairs(Players:GetPlayers()) do
+        if p == player then continue end
+        
+        if Settings.TeamCheck and p.Team and player.Team and p.Team == player.Team then
+            continue
+        end
+        
+        if Settings.DisableTeamESP and p.Team and player.Team and p.Team == player.Team then
+            continue
+        end
+        
+        local char = p.Character
+        if not char then continue end
+        
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 then continue end
+        
+        local targetPos = char.PrimaryPart and char.PrimaryPart.Position
+        if not targetPos then continue end
+        
+        local distance = (playerPos - targetPos).Magnitude
+        if distance > Settings.ActivationDistance then
+            continue
+        end
+        
+        local targetPart = GetTargetPart(char)
+        if not targetPart then continue end
+        
+        local targetPosition = targetPart.Position
+        
+        if Settings.WallCheck then
+            local origin = camera.CFrame.Position
+            local rayDirection = (targetPosition - origin).Unit
+            local rayDistance = (targetPosition - origin).Magnitude
+            
+            local rayParams = RaycastParams.new()
+            rayParams.FilterDescendantsInstances = {player.Character}
+            rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+            
+            local rayResult = Workspace:Raycast(origin, rayDirection * rayDistance, rayParams)
+            
+            if rayResult then
+                local hitParent = rayResult.Instance:FindFirstAncestorOfClass("Model")
+                if hitParent ~= char then
+                    continue
+                end
+            end
+        end
+        
+        local screenPos, onScreen = camera:WorldToViewportPoint(targetPosition)
+        
+        if onScreen then
+            local screenPoint = Vector2.new(screenPos.X, screenPos.Y)
+            local screenDistance = (ScreenCenter - screenPoint).Magnitude
+            
+            if screenDistance <= Settings.FOV then
+                if screenDistance < closestDist then
+                    closestDist = screenDistance
+                    closest = {
+                        Player = p,
+                        Part = targetPart,
+                        Position = targetPosition,
+                        ScreenPosition = screenPoint,
+                        ScreenDistance = screenDistance,
+                        RealDistance = distance,
+                        Character = char,
+                        Humanoid = hum
+                    }
+                end
+            end
+        end
+    end
+    
+    return closest
+end
+
+-- Enhanced Aimbot with all features
+local function EnhancedAimbot()
+    if Settings.HotkeyMode == "Hold" then
+        aimbotActive = UserInputService:IsKeyDown(Settings.AimbotHotkey)
+    end
+    
+    if panicMode or not aimbotActive then 
+        if FOVCircle then FOVCircle.Color = Color3.fromRGB(255, 200, 0) end
+        return 
+    end
+    
+    if not player.Character or not camera then return end
+    
+    ApplySpinbot()
+    
+    if Settings.AutoShoot then
+        AutoShoot()
+    end
+    
+    local target = GetTargetInFOV()
+    
+    if target and target.Part then
+        if FOVCircle then
+            FOVCircle.Color = Color3.fromRGB(0, 255, 0)
+        end
+        
+        local targetPosition = target.Position
+        
+        if Settings.MissChance > 0 then
+            if math.random(1, 100) <= Settings.MissChance then
+                local randomOffset = Vector3.new(
+                    math.random(-1, 1),
+                    math.random(-1, 1),
+                    math.random(-1, 1)
+                ) * 3
+                targetPosition = targetPosition + randomOffset
+            end
+        end
+        
+        local cameraPosition = camera.CFrame.Position
+        local direction = (targetPosition - cameraPosition).Unit
+        
+        local targetCFrame = CFrame.new(cameraPosition, cameraPosition + direction)
+        
+        local currentCFrame = camera.CFrame
+        local smoothness = math.clamp(Settings.Smoothness / 100, 0.1, 0.9)
+        
+        local newLookVector = currentCFrame.LookVector:Lerp(direction, smoothness)
+        local newCFrame = CFrame.new(cameraPosition, cameraPosition + newLookVector)
+        
+        camera.CFrame = newCFrame
+        
+        return true
+    else
+        if FOVCircle then
+            FOVCircle.Color = Color3.fromRGB(255, 200, 0)
+        end
+        return false
+    end
+end
+
+-- ESP Functions
+local function CreateESP(plr)
+    if plr == player then return end
+    
+    if not ESPBoxes[plr] then
+        ESPBoxes[plr] = Drawing.new("Square")
+        ESPBoxes[plr].Visible = false
+        ESPBoxes[plr].Thickness = 2
+        ESPBoxes[plr].Filled = false
+        
+        ESPTexts[plr] = Drawing.new("Text")
+        ESPTexts[plr].Visible = false
+        ESPTexts[plr].Color = Color3.fromRGB(255, 255, 255)
+        ESPTexts[plr].Size = 14
+        ESPTexts[plr].Outline = true
+        ESPTexts[plr].Center = true
+        
+        if Settings.ESP.HealthBar then
+            ESPHealthBars[plr] = Drawing.new("Square")
+            ESPHealthBars[plr].Visible = false
+            ESPHealthBars[plr].Thickness = 1
+            ESPHealthBars[plr].Filled = true
+        end
+    end
+end
+
+local function UpdateESP(plr)
+    if not Settings.ESP.Enabled or panicMode then
+        if ESPBoxes[plr] then ESPBoxes[plr].Visible = false end
+        if ESPTexts[plr] then ESPTexts[plr].Visible = false end
+        if ESPHealthBars[plr] then ESPHealthBars[plr].Visible = false end
+        return
+    end
+    
+    if Settings.ESP.TeamESP == false and plr.Team and player.Team and plr.Team == player.Team then
+        if ESPBoxes[plr] then ESPBoxes[plr].Visible = false end
+        if ESPTexts[plr] then ESPTexts[plr].Visible = false end
+        if ESPHealthBars[plr] then ESPHealthBars[plr].Visible = false end
+        return
+    end
+    
+    local char = plr.Character
+    if not char then 
+        if ESPBoxes[plr] then ESPBoxes[plr].Visible = false end
+        if ESPTexts[plr] then ESPTexts[plr].Visible = false end
+        if ESPHealthBars[plr] then ESPHealthBars[plr].Visible = false end
+        return 
+    end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then 
+        if ESPBoxes[plr] then ESPBoxes[plr].Visible = false end
+        if ESPTexts[plr] then ESPTexts[plr].Visible = false end
+        if ESPHealthBars[plr] then ESPHealthBars[plr].Visible = false end
+        return 
+    end
+    
+    local espColor = GetESPColor(plr)
+    local root = char:FindFirstChild("HumanoidRootPart")
+    if not root then 
+        root = char.PrimaryPart
+        if not root then return end
+    end
+    
+    local screenPos, onScreen = camera:WorldToViewportPoint(root.Position)
+    
+    if onScreen and screenPos.Z > 0 then
+        local size = Vector2.new(2000 / screenPos.Z, 3000 / screenPos.Z)
+        local position = Vector2.new(screenPos.X - size.X / 2, screenPos.Y - size.Y / 2)
+        local distance = (root.Position - camera.CFrame.Position).Magnitude
+        
+        if ESPBoxes[plr] and Settings.ESP.Box then
+            ESPBoxes[plr].Visible = true
+            ESPBoxes[plr].Size = size
+            ESPBoxes[plr].Position = position
+            ESPBoxes[plr].Color = espColor
+        elseif ESPBoxes[plr] then
+            ESPBoxes[plr].Visible = false
+        end
+        
+        if ESPHealthBars[plr] and Settings.ESP.HealthBar then
+            local healthPercent = hum.Health / hum.MaxHealth
+            local barWidth = 3
+            local barHeight = size.Y * healthPercent
+            local barX = position.X - barWidth - 2
+            local barY = position.Y + size.Y - barHeight
+            
+            ESPHealthBars[plr].Visible = true
+            ESPHealthBars[plr].Size = Vector2.new(barWidth, barHeight)
+            ESPHealthBars[plr].Position = Vector2.new(barX, barY)
+            ESPHealthBars[plr].Color = Color3.fromRGB(0, 255, 0):Lerp(Color3.fromRGB(255, 0, 0), 1 - healthPercent)
+        elseif ESPHealthBars[plr] then
+            ESPHealthBars[plr].Visible = false
+        end
+        
+        if ESPTexts[plr] then
+            local text = ""
+            if Settings.ESP.ShowName then
+                text = plr.Name
+            end
+            if Settings.ESP.ShowHealth then
+                if text ~= "" then text = text .. " | " end
+                text = text .. string.format("HP: %d", math.floor(hum.Health))
+            end
+            if Settings.ESP.ShowDistance then
+                if text ~= "" then text = text .. " | " end
+                text = text .. string.format("%d studs", math.floor(distance))
+            end
+            
+            ESPTexts[plr].Visible = text ~= ""
+            ESPTexts[plr].Text = text
+            ESPTexts[plr].Position = Vector2.new(screenPos.X, screenPos.Y - size.Y / 2 - 20)
+            ESPTexts[plr].Color = espColor
+        end
+    else
+        if ESPBoxes[plr] then ESPBoxes[plr].Visible = false end
+        if ESPTexts[plr] then ESPTexts[plr].Visible = false end
+        if ESPHealthBars[plr] then ESPHealthBars[plr].Visible = false end
+    end
+end
+
+local function RemoveESP(plr)
+    if ESPBoxes[plr] then
+        ESPBoxes[plr]:Remove()
+        ESPBoxes[plr] = nil
+    end
+    if ESPTexts[plr] then
+        ESPTexts[plr]:Remove()
+        ESPTexts[plr] = nil
+    end
+    if ESPHealthBars[plr] then
+        ESPHealthBars[plr]:Remove()
+        ESPHealthBars[plr] = nil
+    end
+end
+
+-- Apply movement speed
+local function ApplyMovementSpeed()
+    local char = player.Character
+    if not char then return end
+    
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    if not hum then return end
+    
+    hum.WalkSpeed = Settings.Misc.MoveSpeed
+    hum.JumpPower = Settings.Misc.JumpPower
+end
+
+-- MODERN MENU WITH ANIMATIONS
+local function CreateModernMenu()
+    local existing = CoreGui:FindFirstChild("SkylarMenuEnhanced")
+    if existing then existing:Destroy() end
+    
+    local ScreenGui = Instance.new("ScreenGui")
+    ScreenGui.Name = "SkylarMenuEnhanced"
+    ScreenGui.Parent = CoreGui
+    ScreenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    ScreenGui.Enabled = false
+    
+    -- Animation overlay
+    local Overlay = Instance.new("Frame")
+    Overlay.Size = UDim2.new(1, 0, 1, 0)
+    Overlay.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    Overlay.BorderSizePixel = 0
+    Overlay.Parent = ScreenGui
+    
+    local SkylarText = Instance.new("TextLabel")
+    SkylarText.Size = UDim2.new(0, 0, 0, 0)
+    SkylarText.Position = UDim2.new(0.5, 0, 0.5, 0)
+    SkylarText.BackgroundTransparency = 1
+    SkylarText.Text = "SKYLAR"
+    SkylarText.TextColor3 = Color3.fromRGB(255, 200, 0)
+    SkylarText.Font = Enum.Font.GothamBlack
+    SkylarText.TextSize = 0
+    SkylarText.Parent = Overlay
+    
+    -- Play animation
+    task.spawn(function()
+        wait(0.1)
+        
+        -- Text grow animation
+        local growTween = TweenService:Create(SkylarText, TweenInfo.new(0.8, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+            TextSize = 72,
+            Size = UDim2.new(0, 300, 0, 80),
+            Position = UDim2.new(0.5, -150, 0.5, -40)
+        })
+        growTween:Play()
+        
+        wait(1.0)
+        
+        -- Text shrink to title
+        local shrinkTween = TweenService:Create(SkylarText, TweenInfo.new(0.6, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
+            TextSize = 24,
+            Size = UDim2.new(0, 150, 0, 40),
+            Position = UDim2.new(0.5, 100, 0.05, 10)
+        })
+        shrinkTween:Play()
+        
+        wait(0.6)
+        
+        -- Fade out overlay
+        local fadeTween = TweenService:Create(Overlay, TweenInfo.new(0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+            BackgroundTransparency = 1
+        })
+        fadeTween:Play()
+        
+        wait(0.5)
+        Overlay.Visible = false
+        
+        -- Show main menu
+        ScreenGui.Enabled = true
+    end)
+    
+    -- Main container
+    local MainFrame = Instance.new("Frame")
+    MainFrame.Size = UDim2.new(0, 450, 0, 520)
+    MainFrame.Position = UDim2.new(0.5, -225, 0.5, -260)
+    MainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+    MainFrame.BorderSizePixel = 0
+    MainFrame.Parent = ScreenGui
+    MainFrame.Visible = false
+    
+    -- Show main frame after animation
+    task.delay(2.0, function()
+        MainFrame.Visible = true
+    end)
+    
+    local MainCorner = Instance.new("UICorner")
+    MainCorner.CornerRadius = UDim.new(0, 12)
+    MainCorner.Parent = MainFrame
+    
+    local Shadow = Instance.new("UIStroke")
+    Shadow.Color = Color3.fromRGB(255, 200, 0)
+    Shadow.Thickness = 2
+    Shadow.Transparency = 0.2
+    Shadow.Parent = MainFrame
+    
+    -- Header with animated title
+    local Header = Instance.new("Frame")
+    Header.Size = UDim2.new(1, 0, 0, 60)
+    Header.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+    Header.BorderSizePixel = 0
+    Header.Parent = MainFrame
+    
+    local HeaderCorner = Instance.new("UICorner")
+    HeaderCorner.CornerRadius = UDim.new(0, 12)
+    HeaderCorner.Parent = Header
+    
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, -100, 1, 0)
+    Title.BackgroundTransparency = 1
+    Title.Text = "SKYLAR v1.0"
+    Title.TextColor3 = Color3.fromRGB(255, 200, 0)
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 24
+    Title.TextXAlignment = Enum.TextXAlignment.Left
+    Title.Position = UDim2.new(0, 20, 0, 0)
+    Title.Parent = Header
+    
+    local Subtitle = Instance.new("TextLabel")
+    Subtitle.Size = UDim2.new(1, -100, 0, 20)
+    Subtitle.Position = UDim2.new(0, 20, 0, 35)
+    Subtitle.BackgroundTransparency = 1
+    Subtitle.Text = "Aimbot Menu"
+    Subtitle.TextColor3 = Color3.fromRGB(180, 180, 180)
+    Subtitle.Font = Enum.Font.Gotham
+    Subtitle.TextSize = 12
+    Subtitle.TextXAlignment = Enum.TextXAlignment.Left
+    Subtitle.Parent = Header
+    
+    local CloseButton = Instance.new("TextButton")
+    CloseButton.Size = UDim2.new(0, 36, 0, 36)
+    CloseButton.Position = UDim2.new(1, -42, 0.5, -18)
+    CloseButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    CloseButton.Text = "X"
+    CloseButton.TextColor3 = Color3.fromRGB(255, 100, 100)
+    CloseButton.Font = Enum.Font.GothamBold
+    CloseButton.TextSize = 18
+    CloseButton.Parent = Header
+    
+    local CloseCorner = Instance.new("UICorner")
+    CloseCorner.CornerRadius = UDim.new(0, 8)
+    CloseCorner.Parent = CloseButton
+    
+    CloseButton.MouseButton1Click:Connect(function()
+        ScreenGui.Enabled = false
+        isMenuOpen = false
+    end)
+    
+    CloseButton.MouseEnter:Connect(function()
+        CloseButton.BackgroundColor3 = Color3.fromRGB(55, 55, 60)
+    end)
+    
+    CloseButton.MouseLeave:Connect(function()
+        CloseButton.BackgroundColor3 = Color3.fromRGB(45, 45, 50)
+    end)
+    
+    -- Tab container
+    local TabContainer = Instance.new("Frame")
+    TabContainer.Size = UDim2.new(0, 110, 1, -120)
+    TabContainer.Position = UDim2.new(0, 15, 0, 75)
+    TabContainer.BackgroundTransparency = 1
+    TabContainer.Parent = MainFrame
+    
+    local tabs = {
+        {Name = "AIMBOT", Icon = "🎯"},
+        {Name = "ESP", Icon = "👁️"},
+        {Name = "VISUALS", Icon = "✨"},
+        {Name = "MISC", Icon = "⚙️"}
+    }
+    
+    local tabButtons = {}
+    for i, tabInfo in ipairs(tabs) do
+        local TabButton = Instance.new("TextButton")
+        TabButton.Size = UDim2.new(1, 0, 0, 45)
+        TabButton.Position = UDim2.new(0, 0, 0, (i-1) * 55)
+        TabButton.BackgroundColor3 = i == 1 and Color3.fromRGB(50, 50, 55) or Color3.fromRGB(35, 35, 40)
+        TabButton.Text = ""
+        TabButton.AutoButtonColor = false
+        TabButton.Parent = TabContainer
+        
+        local TabCorner = Instance.new("UICorner")
+        TabCorner.CornerRadius = UDim.new(0, 8)
+        TabCorner.Parent = TabButton
+        
+        local Icon = Instance.new("TextLabel")
+        Icon.Size = UDim2.new(0, 30, 0, 30)
+        Icon.Position = UDim2.new(0, 10, 0.5, -15)
+        Icon.BackgroundTransparency = 1
+        Icon.Text = tabInfo.Icon
+        Icon.TextColor3 = i == 1 and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(180, 180, 180)
+        Icon.Font = Enum.Font.Gotham
+        Icon.TextSize = 18
+        Icon.Parent = TabButton
+        
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(1, -50, 1, 0)
+        Label.Position = UDim2.new(0, 45, 0, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = tabInfo.Name
+        Label.TextColor3 = i == 1 and Color3.fromRGB(255, 200, 0) or Color3.fromRGB(220, 220, 220)
+        Label.Font = Enum.Font.GothamSemibold
+        Label.TextSize = 14
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+        Label.Parent = TabButton
+        
+        tabButtons[i] = {Button = TabButton, Icon = Icon, Label = Label}
+    end
+    
+    -- Content area
+    local ContentArea = Instance.new("Frame")
+    ContentArea.Size = UDim2.new(1, -140, 1, -120)
+    ContentArea.Position = UDim2.new(0, 130, 0, 75)
+    ContentArea.BackgroundTransparency = 1
+    ContentArea.Parent = MainFrame
+    
+    local ContentScrolling = Instance.new("ScrollingFrame")
+    ContentScrolling.Size = UDim2.new(1, 0, 1, 0)
+    ContentScrolling.BackgroundTransparency = 1
+    ContentScrolling.ScrollBarThickness = 6
+    ContentScrolling.ScrollBarImageColor3 = Color3.fromRGB(255, 200, 0)
+    ContentScrolling.CanvasSize = UDim2.new(0, 0, 0, 900)
+    ContentScrolling.Parent = ContentArea
+    
+    local contentFrames = {}
+    for i = 1, 4 do
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 880)
+        frame.BackgroundTransparency = 1
+        frame.Visible = i == 1
+        frame.Parent = ContentScrolling
+        contentFrames[i] = frame
+    end
+    
+    -- Modern toggle function
+    local function CreateToggle(text, setting, category, frameIndex, yPosition)
+        local Container = Instance.new("Frame")
+        Container.Size = UDim2.new(1, -10, 0, 40)
+        Container.Position = UDim2.new(0, 5, 0, yPosition)
+        Container.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+        Container.BorderSizePixel = 0
+        Container.Parent = contentFrames[frameIndex]
+        
+        local ContainerCorner = Instance.new("UICorner")
+        ContainerCorner.CornerRadius = UDim.new(0, 8)
+        ContainerCorner.Parent = Container
+        
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(0.7, -10, 1, 0)
+        Label.Position = UDim2.new(0, 15, 0, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = text
+        Label.TextColor3 = Color3.fromRGB(240, 240, 240)
+        Label.Font = Enum.Font.Gotham
+        Label.TextSize = 14
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+        Label.Parent = Container
+        
+        local ToggleButton = Instance.new("TextButton")
+        ToggleButton.Size = UDim2.new(0, 60, 0, 28)
+        ToggleButton.Position = UDim2.new(1, -75, 0.5, -14)
+        ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+        ToggleButton.Text = ""
+        ToggleButton.AutoButtonColor = false
+        ToggleButton.Parent = Container
+        
+        local ToggleCorner = Instance.new("UICorner")
+        ToggleCorner.CornerRadius = UDim.new(1, 0)
+        ToggleCorner.Parent = ToggleButton
+        
+        local ToggleCircle = Instance.new("Frame")
+        ToggleCircle.Size = UDim2.new(0, 22, 0, 22)
+        ToggleCircle.Position = UDim2.new(0, 3, 0.5, -11)
+        ToggleCircle.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
+        ToggleCircle.BorderSizePixel = 0
+        ToggleCircle.Parent = ToggleButton
+        
+        local ToggleCircleCorner = Instance.new("UICorner")
+        ToggleCircleCorner.CornerRadius = UDim.new(1, 0)
+        ToggleCircleCorner.Parent = ToggleCircle
+        
+        local function UpdateToggle()
+            local isOn = false
+            if category == "Main" then
+                isOn = Settings[setting]
+            elseif category == "ESP" then
+                isOn = Settings.ESP[setting]
+            elseif category == "Misc" then
+                isOn = Settings.Misc[setting]
+            elseif category == "New" then
+                isOn = Settings[setting]
+            end
+            
+            if isOn then
+                ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+                ToggleCircle.Position = UDim2.new(1, -25, 0.5, -11)
+                ToggleCircle.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            else
+                ToggleButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+                ToggleCircle.Position = UDim2.new(0, 3, 0.5, -11)
+                ToggleCircle.BackgroundColor3 = Color3.fromRGB(220, 220, 220)
+            end
+        end
+        
+        ToggleButton.MouseButton1Click:Connect(function()
+            if category == "Main" then
+                Settings[setting] = not Settings[setting]
+                if setting == "ShowFOV" and FOVCircle then
+                    FOVCircle.Visible = Settings.ShowFOV
+                elseif setting == "Radar" then
+                    if not Settings.Radar then
+                        if RadarBox then RadarBox.Visible = false end
+                        if RadarBackground then RadarBackground.Visible = false end
+                    end
+                elseif setting == "Tracers" then
+                    if not Settings.Tracers then
+                        for _, line in pairs(TracerLines) do
+                            if line then line.Visible = false end
+                        end
+                    end
+                elseif setting == "ChangeSky" then
+                    UpdateSky()
+                end
+            elseif category == "ESP" then
+                Settings.ESP[setting] = not Settings.ESP[setting]
+            elseif category == "Misc" then
+                Settings.Misc[setting] = not Settings.Misc[setting]
+                if setting == "Watermark" then
+                    if WatermarkText then WatermarkText.Visible = Settings.Misc.Watermark end
+                    if WatermarkBackground then WatermarkBackground.Visible = Settings.Misc.Watermark end
+                    if WatermarkGlow then WatermarkGlow.Visible = Settings.Misc.Watermark end
+                    if WatermarkIcon then WatermarkIcon.Visible = Settings.Misc.Watermark end
+                end
+            elseif category == "New" then
+                Settings[setting] = not Settings[setting]
+                if setting == "AutoShoot" then
+                    lastShotTime = 0
+                elseif setting == "CustomESPColor" then
+                    -- Color ESP toggle
+                end
+            end
+            UpdateToggle()
+        end)
+        
+        UpdateToggle()
+        return Container
+    end
+    
+    -- FIXED: Modern slider function with visible handle
+    local function CreateSlider(text, min, max, default, setting, category, suffix, frameIndex, yPosition)
+        local Container = Instance.new("Frame")
+        Container.Size = UDim2.new(1, -10, 0, 75)
+        Container.Position = UDim2.new(0, 5, 0, yPosition)
+        Container.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+        Container.BorderSizePixel = 0
+        Container.Parent = contentFrames[frameIndex]
+        
+        local ContainerCorner = Instance.new("UICorner")
+        ContainerCorner.CornerRadius = UDim.new(0, 8)
+        ContainerCorner.Parent = Container
+        
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(1, -20, 0, 20)
+        Label.Position = UDim2.new(0, 15, 0, 10)
+        Label.BackgroundTransparency = 1
+        Label.Text = text
+        Label.TextColor3 = Color3.fromRGB(240, 240, 240)
+        Label.Font = Enum.Font.Gotham
+        Label.TextSize = 14
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+        Label.Parent = Container
+        
+        local ValueLabel = Instance.new("TextLabel")
+        ValueLabel.Size = UDim2.new(0, 80, 0, 20)
+        ValueLabel.Position = UDim2.new(1, -95, 0, 10)
+        ValueLabel.BackgroundTransparency = 1
+        ValueLabel.Text = tostring(default) .. (suffix or "")
+        ValueLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+        ValueLabel.Font = Enum.Font.GothamSemibold
+        ValueLabel.TextSize = 14
+        ValueLabel.TextXAlignment = Enum.TextXAlignment.Right
+        ValueLabel.Parent = Container
+        
+        local Track = Instance.new("Frame")
+        Track.Size = UDim2.new(1, -30, 0, 6)
+        Track.Position = UDim2.new(0, 15, 0, 45)
+        Track.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+        Track.BorderSizePixel = 0
+        Track.Parent = Container
+        
+        local TrackCorner = Instance.new("UICorner")
+        TrackCorner.CornerRadius = UDim.new(1, 0)
+        TrackCorner.Parent = Track
+        
+        local Fill = Instance.new("Frame")
+        Fill.Size = UDim2.new(0, 0, 1, 0)
+        Fill.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+        Fill.BorderSizePixel = 0
+        Fill.Parent = Track
+        
+        local FillCorner = Instance.new("UICorner")
+        FillCorner.CornerRadius = UDim.new(1, 0)
+        FillCorner.Parent = Fill
+        
+        -- FIXED: Handle that matches slider position
+        local Handle = Instance.new("Frame")
+        Handle.Size = UDim2.new(0, 18, 0, 18)
+        Handle.BackgroundColor3 = Color3.fromRGB(255, 200, 0)
+        Handle.BorderSizePixel = 0
+        Handle.Parent = Container
+        Handle.ZIndex = 2
+        
+        local HandleCorner = Instance.new("UICorner")
+        HandleCorner.CornerRadius = UDim.new(1, 0)
+        HandleCorner.Parent = Handle
+        
+        local HandleStroke = Instance.new("UIStroke")
+        HandleStroke.Color = Color3.fromRGB(255, 255, 255)
+        HandleStroke.Thickness = 2
+        HandleStroke.Parent = Handle
+        
+        local function UpdateSlider(value)
+            local percent = (value - min) / (max - min)
+            Fill.Size = UDim2.new(percent, 0, 1, 0)
+            ValueLabel.Text = tostring(value) .. (suffix or "")
+            
+            -- FIXED: Proper handle positioning
+            local trackWidth = Track.AbsoluteSize.X
+            local handleX = (trackWidth * percent) - 9  -- Center the handle
+            Handle.Position = UDim2.new(0, 15 + handleX, 0, 42)
+            
+            if category == "Main" then
+                Settings[setting] = value
+                if setting == "FOV" and FOVCircle then
+                    FOVCircle.Radius = value
+                elseif setting == "SpinbotSpeed" then
+                    -- Update spin speed
+                end
+            elseif category == "Misc" then
+                Settings.Misc[setting] = value
+                if setting == "MoveSpeed" or setting == "JumpPower" then
+                    ApplyMovementSpeed()
+                end
+            elseif category == "New" then
+                Settings[setting] = value
+                if setting == "RadarSize" then
+                    CreateRadar()
+                end
+            end
+        end
+        
+        UpdateSlider(default)
+        
+        local dragging = false
+        local function UpdateFromMouse(input)
+            local mousePos = input.Position.X
+            local trackPos = Track.AbsolutePosition.X
+            local trackSize = Track.AbsoluteSize.X
+            
+            local relativePos = math.clamp(mousePos - trackPos, 0, trackSize)
+            local percent = relativePos / trackSize
+            local value = math.floor(min + (max - min) * percent)
+            
+            UpdateSlider(value)
+        end
+        
+        Track.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+                UpdateFromMouse(input)
+            end
+        end)
+        
+        Handle.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = true
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 then
+                dragging = false
+            end
+        end)
+        
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+                UpdateFromMouse(input)
+            end
+        end)
+        
+        return Container
+    end
+    
+    -- NEW: Color picker for ESP color
+    local function CreateColorPicker(text, setting, frameIndex, yPosition)
+        local Container = Instance.new("Frame")
+        Container.Size = UDim2.new(1, -10, 0, 50)
+        Container.Position = UDim2.new(0, 5, 0, yPosition)
+        Container.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+        Container.BorderSizePixel = 0
+        Container.Parent = contentFrames[frameIndex]
+        
+        local ContainerCorner = Instance.new("UICorner")
+        ContainerCorner.CornerRadius = UDim.new(0, 8)
+        ContainerCorner.Parent = Container
+        
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(0.6, -10, 1, 0)
+        Label.Position = UDim2.new(0, 15, 0, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = text
+        Label.TextColor3 = Color3.fromRGB(240, 240, 240)
+        Label.Font = Enum.Font.Gotham
+        Label.TextSize = 14
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+        Label.Parent = Container
+        
+        local ColorButton = Instance.new("TextButton")
+        ColorButton.Size = UDim2.new(0, 80, 0, 30)
+        ColorButton.Position = UDim2.new(1, -90, 0.5, -15)
+        ColorButton.BackgroundColor3 = Settings[setting]
+        ColorButton.Text = ""
+        ColorButton.AutoButtonColor = false
+        ColorButton.Parent = Container
+        
+        local ColorCorner = Instance.new("UICorner")
+        ColorCorner.CornerRadius = UDim.new(0, 6)
+        ColorCorner.Parent = ColorButton
+        
+        ColorButton.MouseButton1Click:Connect(function()
+            -- Simple color picker (you can enhance this)
+            local newColor = Color3.fromRGB(
+                math.random(0, 255),
+                math.random(0, 255),
+                math.random(0, 255)
+            )
+            Settings[setting] = newColor
+            ColorButton.BackgroundColor3 = newColor
+        end)
+        
+        return Container
+    end
+    
+    -- NEW: Hotkey selector
+    local function CreateHotkeySelector(text, setting, frameIndex, yPosition)
+        local Container = Instance.new("Frame")
+        Container.Size = UDim2.new(1, -10, 0, 40)
+        Container.Position = UDim2.new(0, 5, 0, yPosition)
+        Container.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+        Container.BorderSizePixel = 0
+        Container.Parent = contentFrames[frameIndex]
+        
+        local ContainerCorner = Instance.new("UICorner")
+        ContainerCorner.CornerRadius = UDim.new(0, 8)
+        ContainerCorner.Parent = Container
+        
+        local Label = Instance.new("TextLabel")
+        Label.Size = UDim2.new(0.7, -10, 1, 0)
+        Label.Position = UDim2.new(0, 15, 0, 0)
+        Label.BackgroundTransparency = 1
+        Label.Text = text
+        Label.TextColor3 = Color3.fromRGB(240, 240, 240)
+        Label.Font = Enum.Font.Gotham
+        Label.TextSize = 14
+        Label.TextXAlignment = Enum.TextXAlignment.Left
+        Label.Parent = Container
+        
+        local KeyButton = Instance.new("TextButton")
+        KeyButton.Size = UDim2.new(0, 70, 0, 25)
+        KeyButton.Position = UDim2.new(1, -80, 0.5, -12.5)
+        KeyButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+        KeyButton.Text = keycodeNames[Settings[setting]] or "E"
+        KeyButton.TextColor3 = Color3.fromRGB(255, 200, 0)
+        KeyButton.Font = Enum.Font.GothamSemibold
+        KeyButton.TextSize = 12
+        KeyButton.AutoButtonColor = false
+        KeyButton.Parent = Container
+        
+        local KeyCorner = Instance.new("UICorner")
+        KeyCorner.CornerRadius = UDim.new(0, 6)
+        KeyCorner.Parent = KeyButton
+        
+        local listening = false
+        
+        KeyButton.MouseButton1Click:Connect(function()
+            listening = true
+            KeyButton.Text = "..."
+            KeyButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
+        end)
+        
+        UserInputService.InputBegan:Connect(function(input, gameProcessed)
+            if listening and input.KeyCode ~= Enum.KeyCode.Unknown then
+                Settings[setting] = input.KeyCode
+                KeyButton.Text = keycodeNames[input.KeyCode] or tostring(input.KeyCode):gsub("Enum.KeyCode.", "")
+                KeyButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+                listening = false
+            end
+        end)
+        
+        return Container
+    end
+    
+    -- Populate tabs
+    local yPositions = {0, 0, 0, 0}
+    local spacing = 45
+    
+    -- Aimbot Tab
+    CreateToggle("Aimbot Enabled", "Enabled", "Main", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    CreateToggle("Team Check", "TeamCheck", "Main", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    CreateToggle("Wall Check", "WallCheck", "Main", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    CreateToggle("Show FOV", "ShowFOV", "Main", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    CreateToggle("Spinbot", "Spinbot", "Main", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    CreateToggle("Auto Shoot", "AutoShoot", "New", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    
+    CreateHotkeySelector("Aimbot Hotkey", "AimbotHotkey", 1, yPositions[1]); yPositions[1] = yPositions[1] + spacing
+    
+    -- Hotkey mode selector
+    local hotkeyModeContainer = Instance.new("Frame")
+    hotkeyModeContainer.Size = UDim2.new(1, -10, 0, 40)
+    hotkeyModeContainer.Position = UDim2.new(0, 5, 0, yPositions[1])
+    hotkeyModeContainer.BackgroundColor3 = Color3.fromRGB(40, 40, 45)
+    hotkeyModeContainer.BorderSizePixel = 0
+    hotkeyModeContainer.Parent = contentFrames[1]
+    
+    local hotkeyModeCorner = Instance.new("UICorner")
+    hotkeyModeCorner.CornerRadius = UDim.new(0, 8)
+    hotkeyModeCorner.Parent = hotkeyModeContainer
+    
+    local hotkeyModeLabel = Instance.new("TextLabel")
+    hotkeyModeLabel.Size = UDim2.new(0.7, -10, 1, 0)
+    hotkeyModeLabel.Position = UDim2.new(0, 15, 0, 0)
+    hotkeyModeLabel.BackgroundTransparency = 1
+    hotkeyModeLabel.Text = "Hotkey Mode"
+    hotkeyModeLabel.TextColor3 = Color3.fromRGB(240, 240, 240)
+    hotkeyModeLabel.Font = Enum.Font.Gotham
+    hotkeyModeLabel.TextSize = 14
+    hotkeyModeLabel.TextXAlignment = Enum.TextXAlignment.Left
+    hotkeyModeLabel.Parent = hotkeyModeContainer
+    
+    local hotkeyModeButton = Instance.new("TextButton")
+    hotkeyModeButton.Size = UDim2.new(0, 70, 0, 25)
+    hotkeyModeButton.Position = UDim2.new(1, -80, 0.5, -12.5)
+    hotkeyModeButton.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+    hotkeyModeButton.Text = Settings.HotkeyMode
+    hotkeyModeButton.TextColor3 = Color3.fromRGB(255, 200, 0)
+    hotkeyModeButton.Font = Enum.Font.GothamSemibold
+    hotkeyModeButton.TextSize = 12
+    hotkeyModeButton.AutoButtonColor = false
+    hotkeyModeButton.Parent = hotkeyModeContainer
+    
+    local hotkeyModeButtonCorner = Instance.new("UICorner")
+    hotkeyModeButtonCorner.CornerRadius = UDim.new(0, 6)
+    hotkeyModeButtonCorner.Parent = hotkeyModeButton
+    
+    hotkeyModeButton.MouseButton1Click:Connect(function()
+        if Settings.HotkeyMode == "Toggle" then
+            Settings.HotkeyMode = "Hold"
+        else
+            Settings.HotkeyMode = "Toggle"
+        end
+        hotkeyModeButton.Text = Settings.HotkeyMode
+    end)
+    
+    yPositions[1] = yPositions[1] + spacing
+    
+    CreateSlider("Smoothness", 1, 100, 50, "Smoothness", "Main", "%", 1, yPositions[1]); yPositions[1] = yPositions[1] + 80
+    CreateSlider("FOV Size", 10, 300, 80, "FOV", "Main", "px", 1, yPositions[1]); yPositions[1] = yPositions[1] + 80
+    CreateSlider("Spinbot Speed", 10, 100, 30, "SpinbotSpeed", "Main", "", 1, yPositions[1]); yPositions[1] = yPositions[1] + 80
+    CreateSlider("Activation Distance", 50, 5000, 500, "ActivationDistance", "Main", " studs", 1, yPositions[1]); yPositions[1] = yPositions[1] + 80
+    CreateSlider("Miss Chance", 0, 100, 0, "MissChance", "Main", "%", 1, yPositions[1]); yPositions[1] = yPositions[1] + 80
+    CreateSlider("Auto Shoot Delay", 0.05, 1, 0.1, "AutoShootDelay", "New", "s", 1, yPositions[1]); yPositions[1] = yPositions[1] + 80
+    
+    -- ESP Tab
+    CreateToggle("ESP Enabled", "Enabled", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Box ESP", "Box", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Show Health", "ShowHealth", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Show Distance", "ShowDistance", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Show Name", "ShowName", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Health Bar", "HealthBar", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Team ESP", "TeamESP", "ESP", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    CreateToggle("Custom ESP Color", "CustomESPColor", "New", 2, yPositions[2]); yPositions[2] = yPositions[2] + spacing
+    
+    CreateColorPicker("ESP Color", "ESPColor", 2, yPositions[2]); yPositions[2] = yPositions[2] + 55
+    
+    -- Visuals Tab
+    CreateToggle("Radar", "Radar", "New", 3, yPositions[3]); yPositions[3] = yPositions[3] + spacing
+    CreateToggle("Tracers", "Tracers", "New", 3, yPositions[3]); yPositions[3] = yPositions[3] + spacing
+    CreateToggle("Hit Sound", "HitSound", "New", 3, yPositions[3]); yPositions[3] = yPositions[3] + spacing
+    CreateToggle("Change Sky", "ChangeSky", "New", 3, yPositions[3]); yPositions[3] = yPositions[3] + spacing
+    
+    CreateColorPicker("Sky Color", "SkyColor", 3, yPositions[3]); yPositions[3] = yPositions[3] + 55
+    
+    CreateSlider("Radar Size", 50, 200, 120, "RadarSize", "New", "px", 3, yPositions[3]); yPositions[3] = yPositions[3] + 80
+    CreateSlider("Radar Range", 100, 2000, 500, "RadarRange", "New", " studs", 3, yPositions[3]); yPositions[3] = yPositions[3] + 80
+    
+    -- Misc Tab
+    CreateToggle("Behind Warning", "BehindWarning", "Main", 4, yPositions[4]); yPositions[4] = yPositions[4] + spacing
+    CreateToggle("Watermark", "Watermark", "Misc", 4, yPositions[4]); yPositions[4] = yPositions[4] + spacing
+    
+    CreateHotkeySelector("Panic Key", "PanicKey", 4, yPositions[4]); yPositions[4] = yPositions[4] + spacing
+    CreateHotkeySelector("Auto Shoot Key", "AutoShootKey", 4, yPositions[4]); yPositions[4] = yPositions[4] + spacing
+    
+    CreateSlider("Movement Speed", 16, 200, 16, "MoveSpeed", "Misc", "", 4, yPositions[4]); yPositions[4] = yPositions[4] + 80
+    CreateSlider("Jump Power", 50, 500, 50, "JumpPower", "Misc", "", 4, yPositions[4]); yPositions[4] = yPositions[4] + 80
+    
+    -- Tab switching function
+    local function SwitchToTab(tabIndex)
+        for i, frame in ipairs(contentFrames) do
+            frame.Visible = i == tabIndex
+        end
+        
+        for i, tabData in ipairs(tabButtons) do
+            if i == tabIndex then
+                tabData.Button.BackgroundColor3 = Color3.fromRGB(50, 50, 55)
+                tabData.Icon.TextColor3 = Color3.fromRGB(255, 200, 0)
+                tabData.Label.TextColor3 = Color3.fromRGB(255, 200, 0)
+            else
+                tabData.Button.BackgroundColor3 = Color3.fromRGB(35, 35, 40)
+                tabData.Icon.TextColor3 = Color3.fromRGB(180, 180, 180)
+                tabData.Label.TextColor3 = Color3.fromRGB(220, 220, 220)
+            end
+        end
+        
+        ContentScrolling.CanvasPosition = Vector2.new(0, 0)
+    end
+    
+    for i, tabData in ipairs(tabButtons) do
+        tabData.Button.MouseButton1Click:Connect(function()
+            SwitchToTab(i)
+        end)
+    end
+    
+    SwitchToTab(1)
+    
+    -- Dragging functionality
+    local dragging = false
+    local dragStart, frameStart
+    
+    Header.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            frameStart = MainFrame.Position
+        end
+    end)
+    
+    Header.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = false
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            local delta = input.Position - dragStart
+            MainFrame.Position = UDim2.new(
+                frameStart.X.Scale,
+                frameStart.X.Offset + delta.X,
+                frameStart.Y.Scale,
+                frameStart.Y.Offset + delta.Y
+            )
+        end
+    end)
+    
+    return ScreenGui
+end
+
+-- Initialize
+CreateFOVCircle()
+CreateWatermark()
+CreateRadar()
+local behindWarning = CreateBehindWarning()
+local MenuGUI = CreateModernMenu()
+
+-- Input handling
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed then
+        if input.KeyCode == Enum.KeyCode.Q then
+            MenuGUI.Enabled = not MenuGUI.Enabled
+            isMenuOpen = MenuGUI.Enabled
+        elseif input.KeyCode == Settings.PanicKey then
+            TogglePanic()
+        elseif input.KeyCode == Settings.AutoShootKey then
+            Settings.AutoShoot = not Settings.AutoShoot
+        end
+    end
+end)
+
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and Settings.HotkeyMode == "Toggle" then
+        if input.KeyCode == Settings.AimbotHotkey then
+            aimbotActive = not aimbotActive
+        end
+    end
+end)
+
+-- Player Management
+Players.PlayerAdded:Connect(function(plr)
+    CreateESP(plr)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+    RemoveESP(plr)
+    -- Remove tracer when player leaves
+    if TracerLines[plr] then
+        TracerLines[plr]:Remove()
+        TracerLines[plr] = nil
+    end
+    ActiveTracers[plr] = nil
+end)
+
+for _, plr in pairs(Players:GetPlayers()) do
+    if plr ~= player then
+        CreateESP(plr)
+    end
+end
+
+player.CharacterAdded:Connect(function()
+    wait(0.5)
+    ApplyMovementSpeed()
+end)
+
+-- Main Loop
+local fpsCounter = 0
+local lastTime = tick()
+
+RunService.RenderStepped:Connect(function()
+    fpsCounter = fpsCounter + 1
+    local currentTime = tick()
+    if currentTime - lastTime >= 0.5 then
+        UpdateWatermarkFPS(fpsCounter * 2)
+        fpsCounter = 0
+        lastTime = currentTime
+    end
+    
+    ScreenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    if FOVCircle then
+        FOVCircle.Position = ScreenCenter
+        FOVCircle.Visible = Settings.ShowFOV
+        FOVCircle.Radius = Settings.FOV
+    end
+    
+    if behindWarning and behindWarning.Background then
+        behindWarning.Background.Position = Vector2.new(ScreenCenter.X + 150, ScreenCenter.Y - 20)
+        if behindWarning.Text then
+            behindWarning.Text.Position = Vector2.new(ScreenCenter.X + 275, ScreenCenter.Y)
+        end
+    end
+    
+    if Settings.BehindWarning then
+        local behindEnemy = CheckBehindEnemies()
+        if behindEnemy and behindWarning then
+            if behindWarning.Text then
+                behindWarning.Text.Text = string.format("%s | BEHIND", behindEnemy.Player.Name)
+                behindWarning.Text.Visible = true
+            end
+            if behindWarning.Background then
+                behindWarning.Background.Visible = true
+            end
+        elseif behindWarning then
+            if behindWarning.Text then
+                behindWarning.Text.Visible = false
+            end
+            if behindWarning.Background then
+                behindWarning.Background.Visible = false
+            end
+        end
+    end
+    
+    EnhancedAimbot()
+    UpdateRadar()
+    UpdateTracers()
+    UpdateSky()  -- Fixed: Doesn't interfere with other features
+    
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player then
+            UpdateESP(plr)
+        end
+    end
+    
+    ApplyMovementSpeed()
+end)
+
+print("╔════════════════════════════════════════════════════╗")
+print("║               SKYLAR 1.0  - Q for the menu         ║")
+print("╠════════════════════════════════════════════════════╣")
